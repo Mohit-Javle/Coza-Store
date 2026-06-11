@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-darkbg: #0D0D0D;
+  --color-darksurface: #1A1A1A;
+  --color-primary: #F5F0E8;
+  --color-accent: #C8B8A2;
+  --color-highlight: #E8FF00;
+  --color-muted: #444444;
+
+  --font-bebas: "Bebas Neue", sans-serif;
+  --font-space: "Space Grotesk", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: #0D0D0D;
+    color: #F5F0E8;
+    font-family: 'Space Grotesk', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Bebas Neue', sans-serif;
+    letter-spacing: 0.05em;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0D0D0D;
+}
+::-webkit-scrollbar-thumb {
+  background: #444444;
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #E8FF00;
+}
+
+/* Selection highlight */
+::selection {
+  background-color: #E8FF00;
+  color: #0D0D0D;
+}
+
+/* Noise texture overlay */
+.grain-overlay {
+  position: relative;
+}
+.grain-overlay::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Grayscale hover transitions */
+.image-grayscale-to-color {
+  filter: grayscale(100%);
+  transition: filter 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.5s ease;
+}
+
+.image-grayscale-to-color:hover {
+  filter: grayscale(0%);
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom raw styling tags */
+.raw-tag {
+  background: #1A1A1A;
+  border: 1px solid #444444;
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 0.1em;
+}
+
+.raw-input {
+  background-color: #1A1A1A;
+  border: 2px solid #444444;
+  color: #F5F0E8;
+  font-family: 'Space Grotesk', sans-serif;
+  transition: all 0.2s ease;
+}
+
+.raw-input:focus {
+  border-color: #E8FF00;
+  outline: none;
+}
+
+.raw-btn {
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 0.05em;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
