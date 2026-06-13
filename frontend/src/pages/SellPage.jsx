@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { products } from '../data/products';
-import { users } from '../data/users';
+import { supabase } from '../lib/supabase';
 import ConditionBadge from '../components/ui/ConditionBadge';
 import Footer from '../components/ui/Footer';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, ArrowLeft, ArrowRight, Check, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Upload, ArrowLeft, ArrowRight, Check, ShieldCheck, HelpCircle, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const SellPage = () => {
-  const { currentUser, isLoggedIn } = useAuth();
+  const { profile, isLoggedIn } = useAuth();
   const navigate = useNavigate();
 
   // Route protection
@@ -33,15 +33,22 @@ const SellPage = () => {
   const [description, setDescription] = useState('');
   const [hasTags, setHasTags] = useState(false);
   
-  // UI states (simulated uploads)
-  const [uploadedPhotos, setUploadedPhotos] = useState([]);
-  const [uploadedBill, setUploadedBill] = useState(null);
+  // UI states — real file objects for Supabase upload
+  const [photoFiles, setPhotoFiles] = useState([]);     // File objects
+  const [photoPreview, setPhotoPreview] = useState([]); // Object URLs
+  const [billFile, setBillFile] = useState(null);
+  const [billName, setBillName] = useState('');
   
   const [startBid, setStartBid] = useState('');
   const [buyNowPrice, setBuyNowPrice] = useState('');
-  const [duration, setDuration] = useState('7'); // '3' | '7' | '14'
+  const [duration, setDuration] = useState('7');
+  const [customHours, setCustomHours] = useState('');
   
-  const [showToast, setShowToast] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => () => {
+    photoPreview.forEach(URL.revokeObjectURL);
+  }, []);
 
   // Form navigation helpers
   const nextStep = () => {
@@ -58,67 +65,116 @@ const SellPage = () => {
     }
   };
 
-  // Simulating image upload selection
+  // Real photo file selection
   const handlePhotoSelect = (e) => {
-    const defaultStreetwearImgs = [
-      "https://images.unsplash.com/photo-1598033129183-c4f50c736f10?q=80&w=600&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1517423568366-8b83523034fd?q=80&w=600&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1552346154-21d32810aba3?q=80&w=600&auto=format&fit=crop",
-      "https://images.unsplash.com/photo-1551028719-00167b16eac5?q=80&w=600&auto=format&fit=crop"
-    ];
-    // Push one of the high quality mockup images
-    const nextImgIdx = uploadedPhotos.length % defaultStreetwearImgs.length;
-    setUploadedPhotos(prev => [...prev, defaultStreetwearImgs[nextImgIdx]]);
+    const files = Array.from(e.target.files || []);
+    const remaining = 4 - photoFiles.length;
+    const toAdd = files.slice(0, remaining);
+    setPhotoFiles((prev) => [...prev, ...toAdd]);
+    setPhotoPreview((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
   };
 
-  const handleBillSelect = () => {
-    setUploadedBill("receipt_verified_id_440.pdf");
+  const removePhoto = (idx) => {
+    URL.revokeObjectURL(photoPreview[idx]);
+    setPhotoFiles((prev) => prev.filter((_, i) => i !== idx));
+    setPhotoPreview((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleFormSubmit = (e) => {
-    e.preventDefault();
-    
-    // Simulate listing creation in local database
-    // TODO: API call to create product in Supabase
-    const newProduct = {
-      id: `p${products.length + 1}`,
-      title: title || "Stark Archival Fit",
-      brand: brand || "Street Label",
-      category,
-      size,
-      gender,
-      condition,
-      description: description || "Pre-loved heavy street piece.",
-      images: uploadedPhotos.length > 0 ? uploadedPhotos : ["https://images.unsplash.com/photo-1598033129183-c4f50c736f10?q=80&w=600&auto=format&fit=crop"],
-      hasBill: !!uploadedBill,
-      startingBid: parseFloat(startBid) || 500,
-      currentBid: parseFloat(startBid) || 500,
-      buyNowPrice: buyNowPrice ? parseFloat(buyNowPrice) : null,
-      bidsCount: 0,
-      sellerId: currentUser?.id || "u1",
-      listedAt: new Date().toISOString().split('T')[0],
-      endsAt: new Date(Date.now() + parseInt(duration) * 24 * 60 * 60 * 1000).toISOString(),
-      isLive: true,
-      tags: []
-    };
+  const handleBillSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setBillFile(file);
+      setBillName(file.name);
+    }
+  };
 
-    products.push(newProduct);
-    
-    // Append to currentUser's listedItems
-    if (currentUser) {
-      currentUser.listedItems.push(newProduct.id);
-      const userIdx = users.findIndex(u => u.id === currentUser.id);
-      if (userIdx !== -1) {
-        users[userIdx].listedItems.push(newProduct.id);
+  // Upload photos to Supabase storage
+  const uploadPhotos = async () => {
+    const urls = [];
+    for (const file of photoFiles) {
+      const ext = file.name.split('.').pop();
+      const path = `${profile.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from('product-images').upload(path, file);
+      if (!error) {
+        const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+        urls.push(data.publicUrl);
       }
     }
+    return urls;
+  };
 
-    setShowToast(true);
-    
-    setTimeout(() => {
-      setShowToast(false);
-      navigate(`/profile/${currentUser?.username}`);
-    }, 2000);
+  const uploadBill = async () => {
+    if (!billFile) return null;
+    const ext = billFile.name.split('.').pop();
+    const path = `${profile.id}/bills/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('product-images').upload(path, billFile);
+    if (error) return null;
+    const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+    return data.publicUrl;
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+      e.preventDefault();
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (step < 3) {
+      nextStep();
+      return;
+    }
+    if (!startBid || parseFloat(startBid) <= 0) {
+      toast.error('Please enter a valid starting bid price.');
+      return;
+    }
+    if (!profile) return;
+    setSubmitting(true);
+
+    const loadId = toast.loading('Uploading your listing...');
+
+    // Upload images
+    const imageUrls = photoFiles.length > 0 ? await uploadPhotos() : [];
+    const billUrl = await uploadBill();
+
+    const endsAt = customHours && parseInt(customHours) > 0
+      ? new Date(Date.now() + parseInt(customHours) * 60 * 60 * 1000).toISOString()
+      : new Date(Date.now() + parseInt(duration) * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: newProduct, error } = await supabase
+      .from('products')
+      .insert({
+        seller_id: profile.id,
+        title: title || 'Stark Archival Fit',
+        brand: brand || 'Street Label',
+        category: category.toLowerCase(),
+        size,
+        gender: gender.toLowerCase(),
+        condition,
+        description: description || 'Pre-loved heavy street piece.',
+        images: imageUrls.length > 0 ? imageUrls : ['https://images.unsplash.com/photo-1598033129183-c4f50c736f10?q=80&w=600&auto=format&fit=crop'],
+        has_bill: !!billUrl,
+        bill_image: billUrl,
+        starting_bid: parseFloat(startBid) || 500,
+        current_bid: parseFloat(startBid) || 500,
+        buy_now_price: buyNowPrice ? parseFloat(buyNowPrice) : null,
+        bid_ends_at: endsAt,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    toast.dismiss(loadId);
+    setSubmitting(false);
+
+    if (error) {
+      toast.error('Failed to create listing. Try again.');
+      return;
+    }
+
+    toast.success('Listing live! 🔥');
+    navigate(`/profile/${profile.username}`);
   };
 
   // Condition labels
@@ -193,7 +249,7 @@ const SellPage = () => {
           {/* Subtle noise grain background layout details */}
           <div className="absolute top-0 left-0 w-full h-1 bg-[#E8FF00]" />
 
-          <form onSubmit={handleFormSubmit} className="flex-grow flex flex-col justify-between">
+          <form onSubmit={handleFormSubmit} onKeyDown={handleKeyDown} className="flex-grow flex flex-col justify-between">
             <div className="relative overflow-hidden">
               <AnimatePresence initial={false} mode="wait" custom={direction}>
                 {step === 1 && (
@@ -213,39 +269,42 @@ const SellPage = () => {
                     {/* Photos Upload Slots */}
                     <div>
                       <span className="block font-space text-xs text-zinc-400 uppercase tracking-wider mb-2">
-                        Upload Fit Photos (Max 4, mock selection)
+                        Upload Fit Photos (Max 4)
                       </span>
                       
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        {/* Selected Previews */}
-                        {uploadedPhotos.map((photo, idx) => (
+                        {/* Real previews */}
+                        {photoPreview.map((url, idx) => (
                           <div key={idx} className="relative aspect-[3/4] border-2 border-zinc-700 bg-black group">
-                            <img src={photo} alt="Upload preview" className="w-full h-full object-cover" />
+                            <img src={url} alt="Upload preview" className="w-full h-full object-cover" />
                             <button 
                               type="button" 
-                              onClick={() => setUploadedPhotos(prev => prev.filter((_, i) => i !== idx))}
+                              onClick={() => removePhoto(idx)}
                               className="absolute top-1 right-1 bg-black text-[#F5F0E8] border border-zinc-700 w-5 h-5 flex items-center justify-center font-bold text-xs hover:bg-red-600 transition-colors"
                             >
-                              X
+                              <X size={10} />
                             </button>
                           </div>
                         ))}
 
                         {/* Upload Button Box */}
-                        {uploadedPhotos.length < 4 && (
-                          <button
-                            type="button"
-                            onClick={handlePhotoSelect}
-                            className="aspect-[3/4] border-2 border-dashed border-zinc-800 bg-black hover:border-[#E8FF00] flex flex-col items-center justify-center text-center p-3 transition-colors"
-                          >
-                            <Upload size={24} className="text-zinc-600 mb-2 group-hover:text-[#E8FF00]" />
+                        {photoPreview.length < 4 && (
+                          <label className="aspect-[3/4] border-2 border-dashed border-zinc-800 bg-black hover:border-[#E8FF00] flex flex-col items-center justify-center text-center p-3 transition-colors cursor-pointer">
+                            <Upload size={24} className="text-zinc-600 mb-2" />
                             <span className="font-space text-[10px] text-zinc-500 uppercase tracking-widest font-bold">
-                              DRAG & DROP
+                              DRAG &amp; DROP
                             </span>
                             <span className="font-space text-[8px] text-zinc-700 uppercase">
-                              (CLICK MOCK)
+                              JPG / PNG
                             </span>
-                          </button>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={handlePhotoSelect}
+                            />
+                          </label>
                         )}
                       </div>
                     </div>
@@ -379,17 +438,16 @@ const SellPage = () => {
                       <div>
                         <span className="block font-space text-xs text-zinc-400 uppercase mb-2">Original Purchase Invoice (Optional)</span>
                         <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleBillSelect}
-                            className={`px-4 py-2 border border-dashed text-xs font-space uppercase transition-colors shrink-0 ${
-                              uploadedBill ? 'border-[#E8FF00] text-[#E8FF00]' : 'border-zinc-800 hover:border-zinc-600'
+                          <label
+                            className={`px-4 py-2 border border-dashed text-xs font-space uppercase transition-colors shrink-0 cursor-pointer ${
+                              billName ? 'border-[#E8FF00] text-[#E8FF00]' : 'border-zinc-800 hover:border-zinc-600'
                             }`}
                           >
-                            {uploadedBill ? "BILL ATTACHED" : "UPLOAD BILL (MOCK)"}
-                          </button>
+                            {billName ? 'BILL ATTACHED' : 'UPLOAD BILL'}
+                            <input type="file" accept=".pdf,image/*" className="hidden" onChange={handleBillSelect} />
+                          </label>
                           
-                          {uploadedBill && (
+                          {billName && (
                             <div className="flex items-center gap-1 text-[10px] font-space text-[#E8FF00] bg-[#E8FF00]/5 border border-[#E8FF00]/20 px-2 py-1 uppercase">
                               <ShieldCheck size={12} />
                               Verified Badge Unlocked
@@ -468,15 +526,18 @@ const SellPage = () => {
 
                         {/* Duration Buttons Selector */}
                         <div>
-                          <label className="font-space text-xs text-zinc-400 uppercase block mb-2">Campaign Lifespan (Days)</label>
-                          <div className="grid grid-cols-3 gap-2">
+                          <label className="font-space text-xs text-zinc-400 uppercase block mb-2">Campaign Lifespan</label>
+                          <div className="grid grid-cols-4 gap-2">
                             {['3', '7', '14'].map((days) => (
                               <button
                                 key={days}
                                 type="button"
-                                onClick={() => setDuration(days)}
-                                className={`py-2 text-center border font-space text-xs font-bold transition-all ${
-                                  duration === days
+                                onClick={() => {
+                                  setDuration(days);
+                                  setCustomHours('');
+                                }}
+                                className={`py-2 text-center border font-space text-[10px] md:text-xs font-bold transition-all ${
+                                  duration === days && !customHours
                                     ? 'bg-[#E8FF00] text-black border-transparent'
                                     : 'bg-black/30 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                                 }`}
@@ -484,7 +545,36 @@ const SellPage = () => {
                                 {days} DAYS
                               </button>
                             ))}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDuration('');
+                                setCustomHours('12');
+                              }}
+                              className={`py-2 text-center border font-space text-[10px] md:text-xs font-bold transition-all ${
+                                customHours
+                                  ? 'bg-[#E8FF00] text-black border-transparent'
+                                  : 'bg-black/30 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                              }`}
+                            >
+                              CUSTOM
+                            </button>
                           </div>
+
+                          {customHours !== '' && (
+                            <div className="mt-3 flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="168"
+                                value={customHours}
+                                onChange={(e) => setCustomHours(e.target.value)}
+                                className="raw-input px-3 py-1.5 text-xs font-mono w-24 bg-black border-zinc-800"
+                                placeholder="Hours"
+                              />
+                              <span className="font-space text-[10px] text-zinc-500 uppercase">HOURS (e.g. 12 or 24)</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -494,8 +584,8 @@ const SellPage = () => {
                         <div className="max-w-[240px] mx-auto scale-95 border border-[#2a2a2a] bg-[#1a1a1a]">
                           {/* Image Box */}
                           <div className="relative aspect-[3/4] bg-zinc-950 flex items-center justify-center">
-                            {uploadedPhotos.length > 0 ? (
-                              <img src={uploadedPhotos[0]} alt="preview item" className="w-full h-full object-cover" />
+                            {photoPreview.length > 0 ? (
+                              <img src={photoPreview[0]} alt="preview item" className="w-full h-full object-cover" />
                             ) : (
                               <span className="font-space text-[9px] text-zinc-700 uppercase font-bold tracking-widest">FIT PHOTO SLOT</span>
                             )}
@@ -504,7 +594,7 @@ const SellPage = () => {
                             </div>
                             
                             {/* Bill check Verified overlay preview */}
-                            {uploadedBill && (
+                            {billName && (
                               <div className="absolute top-2 left-2 z-10 bg-[#E8FF00] text-black font-bebas text-[9px] px-1 font-semibold uppercase">
                                 VERIFIED
                               </div>
@@ -563,9 +653,10 @@ const SellPage = () => {
               ) : (
                 <button
                   type="submit"
-                  className="raw-btn flex items-center gap-1.5 px-6 py-3 bg-[#E8FF00] hover:bg-[#F5F0E8] text-black font-extrabold text-xs tracking-wider shadow-[3px_3px_0px_rgba(255,255,255,1)]"
+                  disabled={submitting}
+                  className="raw-btn flex items-center gap-1.5 px-6 py-3 bg-[#E8FF00] hover:bg-[#F5F0E8] text-black font-extrabold text-xs tracking-wider shadow-[3px_3px_0px_rgba(255,255,255,1)] disabled:opacity-50"
                 >
-                  LAUNCH LISTING FIT
+                  {submitting ? 'LAUNCHING...' : 'LAUNCH LISTING FIT'}
                   <Check size={14} />
                 </button>
               )}
@@ -576,20 +667,7 @@ const SellPage = () => {
 
       </div>
 
-      {/* Success Notification Toast */}
-      <AnimatePresence>
-        {showToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-6 right-6 z-50 bg-[#E8FF00] text-black border-2 border-black p-4 font-space text-xs font-bold tracking-wider uppercase shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-2"
-          >
-            <Check size={16} />
-            Listing Created Successfully! Redirecting...
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* (toast handled by global Toaster in App.jsx) */}
 
       {/* Footer */}
       <Footer />

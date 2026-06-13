@@ -1,25 +1,42 @@
-import React, { useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { products } from '../data/products';
-import { users } from '../data/users';
-import ImageGallery from '../components/product/ImageGallery';
-import BidSection from '../components/product/BidSection';
-import QnAThread from '../components/product/QnAThread';
-import Footer from '../components/ui/Footer';
-import { motion } from 'framer-motion';
-import { ArrowLeft, MapPin, Tag, Box, Scale } from 'lucide-react';
+import React, { useEffect, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { getProductById } from '../lib/products'
+import ImageGallery from '../components/product/ImageGallery'
+import BidSection from '../components/product/BidSection'
+import QnAThread from '../components/product/QnAThread'
+import Footer from '../components/ui/Footer'
+import { motion } from 'framer-motion'
+import { ArrowLeft, MapPin, Tag, Box, Scale, Star, Percent } from 'lucide-react'
+
+const conditionMap = { 1: 'Thrashed', 2: 'Heavy Wear', 3: 'Good', 4: 'Excellent', 5: 'Deadstock' }
 
 const ProductDetailPage = () => {
-  const { id } = useParams();
-  const navigate = useNavigate();
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [product, setProduct] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  // Scroll to top on load
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [id]);
+    window.scrollTo(0, 0)
+    const load = async () => {
+      setLoading(true)
+      const data = await getProductById(id)
+      setProduct(data)
+      setLoading(false)
+    }
+    load()
+  }, [id])
 
-  // Find product by id
-  const product = products.find(p => p.id === id);
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen bg-[#0D0D0D] flex items-center justify-center pt-24">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-[#E8FF00] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <span className="font-bebas text-xl text-zinc-600 tracking-widest">LOADING ARCHIVE...</span>
+        </div>
+      </div>
+    )
+  }
 
   if (!product) {
     return (
@@ -35,11 +52,10 @@ const ProductDetailPage = () => {
           BACK TO STORE
         </button>
       </div>
-    );
+    )
   }
 
-  // Find seller info
-  const seller = users.find(u => u.id === product.sellerId) || users[0];
+  const seller = product.seller
 
   return (
     <motion.div
@@ -50,7 +66,7 @@ const ProductDetailPage = () => {
       className="w-full min-h-screen bg-[#0D0D0D] flex flex-col pt-24"
     >
       <div className="max-w-7xl mx-auto px-4 md:px-8 flex-grow w-full py-8">
-        
+
         {/* Back Link */}
         <button
           onClick={() => navigate(-1)}
@@ -60,18 +76,32 @@ const ProductDetailPage = () => {
           Back to list
         </button>
 
-        {/* Product Details Grid */}
+        {/* Badges */}
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {product.is_staff_pick && (
+            <span className="flex items-center gap-1 px-2 py-1 bg-[#E8FF00] text-black text-[10px] font-bold uppercase tracking-wider font-space">
+              <Star size={10} /> STAFF PICK
+            </span>
+          )}
+          {product.discount_percent > 0 && (
+            <span className="flex items-center gap-1 px-2 py-1 bg-red-600 text-white text-[10px] font-bold uppercase tracking-wider font-space">
+              <Percent size={10} /> {product.discount_tag || `${product.discount_percent}% OFF`}
+            </span>
+          )}
+        </div>
+
+        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
-          
-          {/* Left Side: Images */}
+
+          {/* Images */}
           <div className="lg:col-span-5">
-            <ImageGallery images={product.images} hasBill={product.hasBill} />
+            <ImageGallery images={product.images || []} hasBill={product.has_bill} />
           </div>
 
-          {/* Right Side: Details & Bidding */}
+          {/* Details */}
           <div className="lg:col-span-7 flex flex-col gap-6">
-            
-            {/* Header: Brand & Title */}
+
+            {/* Brand & Title */}
             <div>
               <span className="font-bebas text-lg md:text-xl tracking-widest text-[#C8B8A2] uppercase block mb-1">
                 {product.brand}
@@ -81,27 +111,34 @@ const ProductDetailPage = () => {
               </h1>
             </div>
 
-            {/* Seller profile chip */}
-            <div className="flex items-center gap-3 p-3 bg-[#1A1A1A] border border-[#2A2A2A] w-fit">
-              <img
-                src={seller.avatar}
-                alt={seller.username}
-                className="w-10 h-10 object-cover border border-zinc-700"
-              />
-              <div>
-                <span className="font-space text-[10px] text-zinc-500 uppercase block leading-none mb-1">
-                  SELLER ARCHIVE
-                </span>
-                <Link
-                  to={`/profile/${seller.username}`}
-                  className="font-space text-sm font-bold text-[#F5F0E8] hover:text-[#E8FF00] transition-colors leading-none"
-                >
-                  @{seller.username}
-                </Link>
+            {/* Seller chip */}
+            {seller && (
+              <div className="flex items-center gap-3 p-3 bg-[#1A1A1A] border border-[#2A2A2A] w-fit">
+                {seller.avatar_url ? (
+                  <img src={seller.avatar_url} alt={seller.username} className="w-10 h-10 object-cover border border-zinc-700" />
+                ) : (
+                  <div className="w-10 h-10 bg-zinc-800 border border-zinc-700 flex items-center justify-center font-bebas text-lg text-zinc-400">
+                    {seller.username?.[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <span className="font-space text-[10px] text-zinc-500 uppercase block leading-none mb-1">SELLER ARCHIVE</span>
+                  <Link
+                    to={`/profile/${seller.username}`}
+                    className="font-space text-sm font-bold text-[#F5F0E8] hover:text-[#E8FF00] transition-colors leading-none"
+                  >
+                    @{seller.username}
+                  </Link>
+                  {seller.location && (
+                    <span className="flex items-center gap-1 font-space text-[9px] text-zinc-600 mt-0.5">
+                      <MapPin size={9} /> {seller.location}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Product Specifications */}
+            {/* Specs */}
             <div className="grid grid-cols-3 gap-2 border-t border-b border-zinc-800 py-4 font-space text-xs">
               <div className="flex items-center gap-2">
                 <Box size={16} className="text-[#C8B8A2]" />
@@ -121,12 +158,28 @@ const ProductDetailPage = () => {
                 <Tag size={16} className="text-[#C8B8A2]" />
                 <div>
                   <span className="text-[10px] text-zinc-500 block uppercase">ORIGINAL BILL</span>
-                  <span className="font-bold uppercase">{product.hasBill ? "AVAILABLE" : "N/A"}</span>
+                  <span className="font-bold uppercase">{product.has_bill ? 'AVAILABLE' : 'N/A'}</span>
                 </div>
               </div>
             </div>
 
-            {/* Item Description */}
+            {/* Condition */}
+            {product.condition && (
+              <div className="flex items-center gap-3">
+                <span className="font-space text-xs text-zinc-500 uppercase">CONDITION:</span>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div
+                      key={i}
+                      className={`w-6 h-2 ${i <= product.condition ? 'bg-[#E8FF00]' : 'bg-zinc-800'}`}
+                    />
+                  ))}
+                </div>
+                <span className="font-space text-xs text-zinc-400">{conditionMap[product.condition]}</span>
+              </div>
+            )}
+
+            {/* Description */}
             <div>
               <h4 className="font-bebas text-lg tracking-wider text-[#C8B8A2] mb-2 uppercase">
                 ITEM ARCHIVE DIALOGUE
@@ -136,29 +189,26 @@ const ProductDetailPage = () => {
               </p>
             </div>
 
-            {/* Bidding Core Component */}
+            {/* Bid Section */}
             <BidSection
               productId={product.id}
-              startingBid={product.startingBid}
-              currentBid={product.currentBid}
-              buyNowPrice={product.buyNowPrice}
-              endsAt={product.endsAt}
-              isLive={product.isLive}
+              startingBid={product.starting_bid}
+              currentBid={product.current_bid}
+              buyNowPrice={product.buy_now_price}
+              endsAt={product.bid_ends_at}
+              status={product.status}
+              sellerId={product.seller_id}
             />
 
-            {/* Q&A Thread component */}
-            <QnAThread productId={product.id} />
-
+            {/* Q&A Thread */}
+            <QnAThread productId={product.id} sellerId={product.seller_id} />
           </div>
-
         </div>
-
       </div>
 
-      {/* Footer */}
       <Footer />
     </motion.div>
-  );
-};
+  )
+}
 
-export default ProductDetailPage;
+export default ProductDetailPage

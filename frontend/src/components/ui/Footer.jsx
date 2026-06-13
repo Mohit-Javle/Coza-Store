@@ -5,7 +5,7 @@ const Footer = () => {
   return (
     <footer className="bg-[#0A0A0A] border-t border-[#1F1F1F] text-[#F5F0E8] py-12 md:py-16 mt-auto">
       <div className="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-12">
-        
+
         {/* Brand Info */}
         <div className="md:col-span-2">
           <span className="font-bebas text-4xl tracking-tighter block mb-3 text-[#F5F0E8]">
@@ -52,7 +52,7 @@ const Footer = () => {
           © 2026 COZA-STORE. ALL FITS RESERVED.
         </span>
         <span className="font-bebas text-lg text-[#C8B8A2] tracking-widest flex items-center gap-2">
-          MADE WITH <span className="text-red-500 animate-pulse">❤️</span> IN INDIA — COZA
+          <span className="text-red-500 animate-pulse">COZA-STORE</span>
         </span>
       </div>
     </footer>

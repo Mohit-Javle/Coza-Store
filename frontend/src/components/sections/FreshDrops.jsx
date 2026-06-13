@@ -1,42 +1,27 @@
-import React from 'react';
-import { products } from '../../data/products';
-import { users } from '../../data/users';
-import ProductCard from '../ui/ProductCard';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect } from 'react'
+import { getFreshDrops } from '../../lib/products'
+import ProductCard from '../ui/ProductCard'
+import { motion } from 'framer-motion'
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 50 },
+  visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 80, damping: 15 } },
+}
 
 const FreshDrops = () => {
-  // Sort products by listed date (newest first)
-  const freshDrops = [...products]
-    .sort((a, b) => new Date(b.listedAt) - new Date(a.listedAt))
-    .slice(0, 8); // Display 8 fresh drops
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const containerVariants = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.08
-      }
-    }
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 50 },
-    visible: { 
-      opacity: 1, 
-      y: 0,
-      transition: {
-        type: "spring",
-        stiffness: 80,
-        damping: 15
-      }
-    }
-  };
+  useEffect(() => {
+    getFreshDrops().then((data) => {
+      setProducts(data)
+      setLoading(false)
+    })
+  }, [])
 
   return (
     <section className="py-20 bg-[#0D0D0D] border-b border-[#1A1A1A]">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
-        
-        {/* Heading */}
         <div className="mb-12">
           <span className="font-space text-xs font-bold tracking-widest text-[#C8B8A2] uppercase block mb-1">
             LATEST ARRIVALS
@@ -46,42 +31,45 @@ const FreshDrops = () => {
           </h2>
         </div>
 
-        {/* Masonry CSS Column Grid */}
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true, margin: "-100px" }}
-          className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6"
-        >
-          {freshDrops.map((product) => {
-            const seller = users.find(u => u.id === product.sellerId) || users[0];
-            return (
-              <motion.div 
-                key={product.id}
-                variants={itemVariants}
-                className="break-inside-avoid inline-block w-full"
-              >
-                <ProductCard 
+        {loading ? (
+          <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+              <div key={i} className="break-inside-avoid inline-block w-full h-80 bg-zinc-900 animate-pulse" />
+            ))}
+          </div>
+        ) : products.length === 0 ? (
+          <p className="font-space text-sm text-zinc-600 uppercase text-center py-12">
+            No drops yet — be the first to list something!
+          </p>
+        ) : (
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: '-100px' }}
+            transition={{ staggerChildren: 0.08 }}
+            className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6"
+          >
+            {products.map((product) => (
+              <motion.div key={product.id} variants={itemVariants} className="break-inside-avoid inline-block w-full">
+                <ProductCard
                   id={product.id}
-                  image={product.images[0]}
+                  image={product.images?.[0]}
                   brand={product.brand}
                   title={product.title}
-                  currentBid={product.currentBid}
+                  currentBid={product.current_bid || product.starting_bid}
                   conditionRating={product.condition}
-                  sellerUsername={seller.username}
-                  isLiveBid={product.isLive}
-                  isBuyNow={!!product.buyNowPrice}
-                  endTime={product.endsAt}
+                  sellerUsername={product.seller?.username}
+                  isLiveBid={product.status === 'active'}
+                  isBuyNow={!!product.buy_now_price}
+                  endTime={product.bid_ends_at}
                 />
               </motion.div>
-            );
-          })}
-        </motion.div>
-
+            ))}
+          </motion.div>
+        )}
       </div>
     </section>
-  );
-};
+  )
+}
 
-export default FreshDrops;
+export default FreshDrops

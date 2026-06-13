@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { products as initialProducts } from '../data/products';
-import { users as initialUsers } from '../data/users';
+import React, { useState, useEffect } from 'react';
+import {
+  getAdminProducts, getAdminUsers, getAuditLogs, moderateProduct,
+  toggleStaffPick, banUser, unbanUser, changeUserRole,
+} from '../lib/admin';
 import AdminSidebar from '../components/admin/AdminSidebar';
 import StatsCard from '../components/admin/StatsCard';
 import AdminTable from '../components/admin/AdminTable';
@@ -11,6 +13,7 @@ import {
   Users, Tag, Hammer, CreditCard, Ban, CheckCircle, XCircle, 
   Trash2, Plus, ArrowUpRight, ShieldAlert, LineChart as ChartIcon
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 // Recharts components imports
 import { 
@@ -21,27 +24,30 @@ import {
 const SuperAdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   
-  // Local reactive states for interactive tables
-  const [productsList, setProductsList] = useState([...initialProducts]);
-  const [usersList, setUsersList] = useState([...initialUsers]);
+  // Real data state
+  const [productsList, setProductsList] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Admin list state
-  const [adminsList, setAdminsList] = useState([
-    { id: 'adm1', email: 'mod.kabir@chaos.in', role: 'Staff Moderator', addedAt: '2026-05-12' },
-    { id: 'adm2', email: 'lead.zoya@chaos.in', role: 'Billing Inspector', addedAt: '2026-05-20' },
-    { id: 'adm3', email: 'owner.dev@chaos.in', role: 'Super Admin', addedAt: '2026-04-01' }
-  ]);
-  const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  // Audit Logs mock state
-  const [auditLogs, setAuditLogs] = useState([
-    { id: 'log1', time: '2026-06-11 14:20:10', admin: 'lead.zoya@chaos.in', action: 'Approved listing', target: 'AJ1 Chicago (p3)' },
-    { id: 'log2', time: '2026-06-11 11:05:00', admin: 'mod.kabir@chaos.in', action: 'Flagged user comment', target: 'u5 comment on p1' },
-    { id: 'log3', time: '2026-06-10 18:30:15', admin: 'owner.dev@chaos.in', action: 'Banned user', target: 'u7 (nikhil.j)' },
-    { id: 'log4', time: '2026-06-09 10:12:44', admin: 'lead.zoya@chaos.in', action: 'Assigned reward stamp', target: 'Ralph Flannel (p1) -> staffpick' },
-    { id: 'log5', time: '2026-06-08 17:40:02', admin: 'mod.kabir@chaos.in', action: 'Approved listing', target: 'Casio Watch (p15)' }
-  ]);
+  // Load data on tab change
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      if (activeTab === 'listings' || activeTab === 'rewards') {
+        const data = await getAdminProducts();
+        setProductsList(data);
+      } else if (activeTab === 'users' || activeTab === 'admins') {
+        const data = await getAdminUsers();
+        setUsersList(data);
+      } else if (activeTab === 'audit') {
+        const data = await getAuditLogs();
+        setAuditLogs(data);
+      }
+      setLoading(false);
+    };
+    load();
+  }, [activeTab]);
 
   // Analytics Chart mock data
   const dauData = [
@@ -75,142 +81,66 @@ const SuperAdminDashboard = () => {
   ];
 
   // Actions for Listings
-  const handleUpdateStatus = (productId, newStatus) => {
-    const updated = productsList.map(p => {
-      if (p.id === productId) {
-        return { ...p, status: newStatus };
-      }
-      return p;
-    });
-    setProductsList(updated);
-    
-    // Log audit log
-    const newLog = {
-      id: `log${auditLogs.length + 1}`,
-      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      admin: 'owner.dev@chaos.in',
-      action: `Set status to ${newStatus}`,
-      target: `Product ID: ${productId}`
-    };
-    setAuditLogs([newLog, ...auditLogs]);
-
-    const idx = initialProducts.findIndex(p => p.id === productId);
-    if (idx !== -1) initialProducts[idx].status = newStatus;
-  };
-
-  const handleToggleStaffPick = (productId) => {
-    const updated = productsList.map(p => {
-      if (p.id === productId) {
-        const hasTag = p.tags.includes('staffpick');
-        const nextTags = hasTag ? p.tags.filter(t => t !== 'staffpick') : [...p.tags, 'staffpick'];
-        return { ...p, tags: nextTags };
-      }
-      return p;
-    });
-    setProductsList(updated);
-
-    const idx = initialProducts.findIndex(p => p.id === productId);
-    if (idx !== -1) {
-      const hasTag = initialProducts[idx].tags.includes('staffpick');
-      initialProducts[idx].tags = hasTag ? initialProducts[idx].tags.filter(t => t !== 'staffpick') : [...initialProducts[idx].tags, 'staffpick'];
+  const handleUpdateStatus = async (productId, newStatus) => {
+    const { error } = await moderateProduct(productId, newStatus);
+    if (!error) {
+      setProductsList((prev) => prev.map((p) => p.id === productId ? { ...p, status: newStatus } : p));
+      toast.success(`Listing ${newStatus}`);
     }
   };
 
-  // Actions for Rewards Tags
-  const handleAssignReward = (productId, rewardTag) => {
-    const updated = productsList.map(p => {
-      if (p.id === productId) {
-        const hasTag = p.tags.includes(rewardTag);
-        const nextTags = hasTag ? p.tags.filter(t => t !== rewardTag) : [...p.tags, rewardTag];
-        return { ...p, tags: nextTags };
-      }
-      return p;
-    });
-    setProductsList(updated);
-
-    const idx = initialProducts.findIndex(p => p.id === productId);
-    if (idx !== -1) {
-      const hasTag = initialProducts[idx].tags.includes(rewardTag);
-      initialProducts[idx].tags = hasTag ? initialProducts[idx].tags.filter(t => t !== rewardTag) : [...initialProducts[idx].tags, rewardTag];
+  const handleToggleStaffPick = async (productId, current) => {
+    const { error } = await toggleStaffPick(productId, !current);
+    if (!error) {
+      setProductsList((prev) => prev.map((p) => p.id === productId ? { ...p, is_staff_pick: !current } : p));
+      toast.success(current ? 'Staff pick removed' : 'Staff pick applied ⭐');
     }
   };
 
   // Actions for Users
-  const handleToggleUserBan = (userId) => {
-    const updated = usersList.map(u => {
-      if (u.id === userId) {
-        return { ...u, isBanned: !u.isBanned };
-      }
-      return u;
-    });
-    setUsersList(updated);
-
-    const targetUser = usersList.find(u => u.id === userId);
-    const newLog = {
-      id: `log${auditLogs.length + 1}`,
-      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      admin: 'owner.dev@chaos.in',
-      action: targetUser?.isBanned ? 'Unbanned user' : 'Banned user',
-      target: `@${targetUser?.username}`
-    };
-    setAuditLogs([newLog, ...auditLogs]);
-
-    const idx = initialUsers.findIndex(u => u.id === userId);
-    if (idx !== -1) initialUsers[idx].isBanned = !initialUsers[idx].isBanned;
+  const handleToggleUserBan = async (userId, isBanned) => {
+    const fn = isBanned ? unbanUser : banUser;
+    const { error } = await fn(userId);
+    if (!error) {
+      setUsersList((prev) => prev.map((u) => u.id === userId ? { ...u, is_banned: !isBanned } : u));
+      toast.success(isBanned ? 'User unbanned' : 'User banned');
+    }
   };
 
-  // Add / Remove Admin
+  const handleChangeRole = async (userId, newRole) => {
+    const { error } = await changeUserRole(userId, newRole);
+    if (!error) {
+      setUsersList((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
+      toast.success(`Role set to ${newRole}`);
+    }
+  };
+
+  // Admin management (UI-only for now)
+  const [adminsList, setAdminsList] = useState([]);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+
   const handleAddAdmin = (e) => {
     e.preventDefault();
     if (!newAdminEmail) return;
-
-    const newAdmin = {
-      id: `adm${adminsList.length + 1}`,
-      email: newAdminEmail.trim(),
-      role: 'Staff Moderator',
-      addedAt: new Date().toISOString().split('T')[0]
-    };
-
-    setAdminsList([...adminsList, newAdmin]);
-
-    const newLog = {
-      id: `log${auditLogs.length + 1}`,
-      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      admin: 'owner.dev@chaos.in',
-      action: 'Promoted admin',
-      target: newAdminEmail.trim()
-    };
-    setAuditLogs([newLog, ...auditLogs]);
-
+    toast('To promote to admin, use the Users tab to change their role.');
     setNewAdminEmail('');
     setShowAddModal(false);
   };
 
-  const handleRemoveAdmin = (id, email) => {
-    setAdminsList(adminsList.filter(a => a.id !== id));
-
-    const newLog = {
-      id: `log${auditLogs.length + 1}`,
-      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      admin: 'owner.dev@chaos.in',
-      action: 'Demoted admin',
-      target: email
-    };
-    setAuditLogs([newLog, ...auditLogs]);
+  const handleRemoveAdmin = (id) => {
+    setAdminsList((prev) => prev.filter((a) => a.id !== id));
   };
 
-  // Stats
+  // Stats (static estimates — real stats from admin overview if desired)
   const stats = [
-    { title: "TOTAL USERS", value: usersList.length, icon: Users, change: "+12%" },
-    { title: "ACTIVE LISTINGS", value: productsList.length, icon: Tag, change: "+4%" },
-    { title: "LIVE BIDS", value: productsList.filter(p => p.isLive).length, icon: Hammer, change: "+19%" },
-    { title: "GROSS VOLUME TRANSACTIONS", value: "₹2,14,500", icon: CreditCard, change: "+24%" }
+    { title: 'TOTAL USERS', value: usersList.length || '—', icon: Users, change: '' },
+    { title: 'ACTIVE LISTINGS', value: productsList.length || '—', icon: Tag, change: '' },
+    { title: 'LIVE BIDS', value: productsList.filter((p) => p.status === 'active').length || '—', icon: Hammer, change: '' },
+    { title: 'ACTIVE ORDERS', value: '—', icon: CreditCard, change: '' },
   ];
 
-  const getSellerUsername = (sellerId) => {
-    const s = usersList.find(u => u.id === sellerId);
-    return s ? s.username : 'anonymous';
-  };
+  const getSellerUsername = (product) => product.seller?.username || 'anonymous';
 
   return (
     <motion.div
@@ -310,117 +240,101 @@ const SuperAdminDashboard = () => {
           {/* Tab Content 2: Listings Moderation (Inherited from Admin) */}
           {activeTab === 'listings' && (
             <div className="space-y-6">
-              <AdminTable headers={["Image", "Fit Title", "Seller", "High Bid", "Condition", "Status", "Actions", "Promotions"]}>
+              {loading ? (
+                <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-12 bg-zinc-900 animate-pulse"/>)}</div>
+              ) : (
+              <AdminTable headers={['Image', 'Fit Title', 'Seller', 'High Bid', 'Condition', 'Status', 'Actions', 'Staff Pick']}>
                 {productsList.map((product) => {
-                  const currentPrice = product.currentBid || product.startingBid;
-                  const isStaffPick = product.tags.includes('staffpick');
-                  
+                  const currentPrice = product.current_bid || product.starting_bid;
                   return (
                     <tr key={product.id} className="hover:bg-zinc-900/30 transition-colors">
                       <td className="px-4 py-3">
-                        <img 
-                          src={product.images[0]} 
-                          alt={product.title} 
-                          className="w-12 aspect-[3/4] object-cover border border-[#333]" 
-                        />
+                        {product.images?.[0] && <img src={product.images[0]} alt={product.title} className="w-12 aspect-[3/4] object-cover border border-[#333]" />}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-[#F5F0E8]">{product.title}</td>
-                      <td className="px-4 py-3 text-zinc-400">@{getSellerUsername(product.sellerId)}</td>
-                      <td className="px-4 py-3 font-mono font-bold text-[#E8FF00]">₹{currentPrice}</td>
+                      <td className="px-4 py-3 font-semibold text-[#F5F0E8] max-w-[120px] truncate">{product.title}</td>
+                      <td className="px-4 py-3 text-zinc-400">@{getSellerUsername(product)}</td>
+                      <td className="px-4 py-3 font-mono font-bold text-[#E8FF00]">₹{currentPrice?.toLocaleString('en-IN')}</td>
                       <td className="px-4 py-3"><ConditionBadge rating={product.condition} /></td>
                       <td className="px-4 py-3 font-space text-xs">
                         <span className={`px-2 py-0.5 font-bold uppercase ${
-                          product.status === 'Approved' ? 'bg-green-950/50 text-green-400 border border-green-900/30' :
-                          product.status === 'Rejected' ? 'bg-red-950/50 text-red-400 border border-red-900/30' :
-                          product.status === 'Flagged' ? 'bg-orange-950/50 text-orange-400 border border-orange-900/30' :
+                          product.status === 'active' ? 'bg-green-950/50 text-green-400 border border-green-900/30' :
+                          product.status === 'rejected' ? 'bg-red-950/50 text-red-400 border border-red-900/30' :
+                          product.status === 'flagged' ? 'bg-orange-950/50 text-orange-400 border border-orange-900/30' :
                           'bg-zinc-900 text-zinc-500 border border-zinc-800'
-                        }`}>
-                          {product.status || 'Pending'}
-                        </span>
+                        }`}>{product.status}</span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          <button
-                            onClick={() => handleUpdateStatus(product.id, 'Approved')}
-                            className="p-1 bg-green-950/20 hover:bg-green-950 text-green-400 border border-zinc-800"
-                          >
-                            <CheckCircle size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleUpdateStatus(product.id, 'Rejected')}
-                            className="p-1 bg-red-950/20 hover:bg-red-950 text-red-400 border border-zinc-800"
-                          >
-                            <XCircle size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleUpdateStatus(product.id, 'Flagged')}
-                            className="p-1 bg-orange-950/20 hover:bg-orange-950 text-orange-400 border border-zinc-800"
-                          >
-                            <ShieldAlert size={14} />
-                          </button>
+                          <button onClick={() => handleUpdateStatus(product.id, 'active')} className="p-1 bg-green-950/20 hover:bg-green-950 text-green-400 border border-zinc-800"><CheckCircle size={14} /></button>
+                          <button onClick={() => handleUpdateStatus(product.id, 'rejected')} className="p-1 bg-red-950/20 hover:bg-red-950 text-red-400 border border-zinc-800"><XCircle size={14} /></button>
+                          <button onClick={() => handleUpdateStatus(product.id, 'flagged')} className="p-1 bg-orange-950/20 hover:bg-orange-950 text-orange-400 border border-zinc-800"><ShieldAlert size={14} /></button>
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         <button
-                          onClick={() => handleToggleStaffPick(product.id)}
+                          onClick={() => handleToggleStaffPick(product.id, product.is_staff_pick)}
                           className={`px-3 py-1 font-bebas text-xs tracking-wider transition-colors ${
-                            isStaffPick 
-                              ? 'bg-[#E8FF00] text-black font-bold' 
-                              : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-white'
+                            product.is_staff_pick ? 'bg-[#E8FF00] text-black font-bold' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-white'
                           }`}
                         >
-                          {isStaffPick ? 'STAFF PICK!' : 'FEATURE'}
+                          {product.is_staff_pick ? 'STAFF PICK!' : 'FEATURE'}
                         </button>
                       </td>
                     </tr>
                   );
                 })}
               </AdminTable>
+              )}
             </div>
           )}
 
-          {/* Tab Content 3: Users Directory (Inherited) */}
           {activeTab === 'users' && (
             <div className="space-y-6">
-              <AdminTable headers={["Avatar", "Username", "Name", "Location", "Listed Items", "Status", "Actions"]}>
+              {loading ? (
+                <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="h-12 bg-zinc-900 animate-pulse"/>)}</div>
+              ) : (
+              <AdminTable headers={['Avatar', 'Username', 'Name', 'Role', 'Status', 'Actions']}>
                 {usersList.map((user) => (
                   <tr key={user.id} className="hover:bg-zinc-900/30 transition-colors">
                     <td className="px-4 py-3">
-                      <img
-                        src={user.avatar}
-                        alt={user.username}
-                        className="w-8 h-8 rounded-none object-cover border border-[#333]"
-                      />
+                      {user.avatar_url
+                        ? <img src={user.avatar_url} alt={user.username} className="w-8 h-8 object-cover border border-[#333]" />
+                        : <div className="w-8 h-8 bg-zinc-800 border border-[#333] flex items-center justify-center text-xs font-bold text-zinc-500">{user.username?.[0]?.toUpperCase()}</div>
+                      }
                     </td>
                     <td className="px-4 py-3 font-semibold text-[#F5F0E8]">@{user.username}</td>
-                    <td className="px-4 py-3 text-zinc-400">{user.name}</td>
-                    <td className="px-4 py-3 font-space text-xs text-[#C8B8A2] uppercase">{user.location}</td>
-                    <td className="px-4 py-3 font-mono font-semibold">{user.listedItems.length} listed</td>
+                    <td className="px-4 py-3 text-zinc-400">{user.full_name}</td>
+                    <td className="px-4 py-3">
+                      <select value={user.role} onChange={(e) => handleChangeRole(user.id, e.target.value)} className="raw-input text-xs px-2 py-1 bg-black border-zinc-800">
+                        <option value="user">USER</option>
+                        <option value="admin">ADMIN</option>
+                        <option value="superadmin">SUPERADMIN</option>
+                      </select>
+                    </td>
                     <td className="px-4 py-3 font-space text-xs">
                       <span className={`px-2 py-0.5 font-bold uppercase ${
-                        user.isBanned 
-                          ? 'bg-red-950/50 text-red-500 border border-red-900/30' 
-                          : 'bg-green-950/50 text-green-400 border border-green-900/30'
+                        user.is_banned ? 'bg-red-950/50 text-red-500 border border-red-900/30' : 'bg-green-950/50 text-green-400 border border-green-900/30'
                       }`}>
-                        {user.isBanned ? 'Banned' : 'Active'}
+                        {user.is_banned ? 'Banned' : 'Active'}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => handleToggleUserBan(user.id)}
+                        onClick={() => handleToggleUserBan(user.id, user.is_banned)}
                         className={`flex items-center gap-1.5 px-3 py-1 font-bebas text-xs tracking-wider border transition-colors ${
-                          user.isBanned
-                            ? 'bg-green-900/20 text-green-400 border-green-900 hover:bg-green-900 hover:text-black'
-                            : 'bg-red-900/20 text-red-400 border-red-900 hover:bg-red-900 hover:text-black'
+                          user.is_banned
+                            ? 'bg-green-900/20 text-green-400 border-green-900 hover:bg-green-900/50'
+                            : 'bg-red-900/20 text-red-400 border-red-900 hover:bg-red-900/50'
                         }`}
                       >
                         <Ban size={12} />
-                        {user.isBanned ? 'UNBAN VISITOR' : 'BAN USER'}
+                        {user.is_banned ? 'UNBAN' : 'BAN'}
                       </button>
                     </td>
                   </tr>
                 ))}
               </AdminTable>
+              )}
             </div>
           )}
 
@@ -592,35 +506,30 @@ const SuperAdminDashboard = () => {
             </div>
           )}
 
-          {/* Tab Content 7: Audit Log */}
           {activeTab === 'audit' && (
             <div className="space-y-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <span className="font-space text-xs text-zinc-500 uppercase block mb-1">HISTORY LOG DECK</span>
-                  <h3 className="font-bebas text-2xl text-[#F5F0E8] uppercase tracking-wider">STAFF AUDIT LOGGING</h3>
-                </div>
-                <button
-                  onClick={() => {
-                    setAuditLogs([]);
-                    alert("Audit log memory wiped (simulated).");
-                  }}
-                  className="raw-btn px-4 py-2 bg-transparent border border-zinc-800 hover:border-red-800 hover:text-red-500 text-xs font-bold"
-                >
-                  CLEAR SYSTEM LOG
-                </button>
+              <div className="mb-6">
+                <span className="font-space text-xs text-zinc-500 uppercase block mb-1">HISTORY LOG DECK</span>
+                <h3 className="font-bebas text-2xl text-[#F5F0E8] uppercase tracking-wider">STAFF AUDIT LOGGING</h3>
               </div>
-
-              <AdminTable headers={["Timestamp", "Administrator", "Activity Action", "Target component"]}>
+              {loading ? (
+                <div className="space-y-2">{[1,2,3,4].map(i=><div key={i} className="h-10 bg-zinc-900 animate-pulse"/>)}</div>
+              ) : auditLogs.length === 0 ? (
+                <p className="font-space text-sm text-zinc-600 uppercase">No audit logs found.</p>
+              ) : (
+              <AdminTable headers={['Timestamp', 'Admin', 'Action', 'Target']}>
                 {auditLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-zinc-900/30 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">{log.time}</td>
-                    <td className="px-4 py-3 font-semibold text-[#F5F0E8]">{log.admin}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">
+                      {new Date(log.created_at || log.time).toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-[#F5F0E8]">{log.admin?.username || log.admin || '—'}</td>
                     <td className="px-4 py-3 font-space text-xs text-[#C8B8A2] uppercase font-bold">{log.action}</td>
-                    <td className="px-4 py-3 text-zinc-400 font-mono text-xs">{log.target}</td>
+                    <td className="px-4 py-3 text-zinc-400 font-mono text-xs">{log.target_id || log.target || '—'}</td>
                   </tr>
                 ))}
               </AdminTable>
+              )}
             </div>
           )}
 
