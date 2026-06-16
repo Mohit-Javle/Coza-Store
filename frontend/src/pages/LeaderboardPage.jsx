@@ -20,83 +20,61 @@ const LeaderboardPage = () => {
     const loadData = async () => {
       setLoading(true)
       try {
-        // Fetch all orders with profiles
-        const { data: orders } = await supabase
-          .from('orders')
-          .select(`
-            id, final_amount,
-            seller:profiles!seller_id(username, full_name, avatar_url),
-            buyer:profiles!buyer_id(username, full_name, avatar_url)
-          `)
+        // Fetch Top Sellers from View
+        const { data: sellers } = await supabase
+          .from('v_leaderboard_sellers')
+          .select('*')
+          .order('total_amount', { ascending: false })
+          .limit(20)
 
-        // Fetch all bids with profiles
-        const { data: bids } = await supabase
-          .from('bids')
-          .select(`
-            id, amount,
-            bidder:profiles!bidder_id(username, full_name, avatar_url)
-          `)
+        // Fetch Top Buyers from View
+        const { data: buyers } = await supabase
+          .from('v_leaderboard_buyers')
+          .select('*')
+          .order('total_amount', { ascending: false })
+          .limit(20)
 
-        const ordersList = orders || []
-        const bidsList = bids || []
+        // Fetch Top Bidders from View
+        const { data: bidders } = await supabase
+          .from('v_leaderboard_bidders')
+          .select('*')
+          .order('bids_count', { ascending: false })
+          .limit(20)
 
-        // Process Sellers
-        const sellersMap = {}
-        ordersList.forEach(order => {
-          const seller = order.seller
-          if (!seller) return
-          const sId = order.seller.username // Group by username to handle duplicates
-          if (!sellersMap[sId]) {
-            sellersMap[sId] = {
-              profile: seller,
-              totalAmount: 0,
-              count: 0
-            }
-          }
-          sellersMap[sId].totalAmount += parseFloat(order.final_amount)
-          sellersMap[sId].count += 1
-        })
-        const sellersResult = Object.values(sellersMap).sort((a, b) => b.totalAmount - a.totalAmount)
+        // Map Sellers View to local state format
+        const sellersResult = (sellers || []).map(row => ({
+          profile: {
+            username: row.username,
+            full_name: row.full_name,
+            avatar_url: row.avatar_url
+          },
+          totalAmount: parseFloat(row.total_amount),
+          count: row.sales_count
+        }))
         setTopSellers(sellersResult)
 
-        // Process Buyers
-        const buyersMap = {}
-        ordersList.forEach(order => {
-          const buyer = order.buyer
-          if (!buyer) return
-          const bId = order.buyer.username
-          if (!buyersMap[bId]) {
-            buyersMap[bId] = {
-              profile: buyer,
-              totalAmount: 0,
-              count: 0
-            }
-          }
-          buyersMap[bId].totalAmount += parseFloat(order.final_amount)
-          buyersMap[bId].count += 1
-        })
-        const buyersResult = Object.values(buyersMap).sort((a, b) => b.totalAmount - a.totalAmount)
+        // Map Buyers View to local state format
+        const buyersResult = (buyers || []).map(row => ({
+          profile: {
+            username: row.username,
+            full_name: row.full_name,
+            avatar_url: row.avatar_url
+          },
+          totalAmount: parseFloat(row.total_amount),
+          count: row.items_copped
+        }))
         setTopBuyers(buyersResult)
 
-        // Process Bidders
-        const biddersMap = {}
-        bidsList.forEach(bid => {
-          const bidder = bid.bidder
-          if (!bidder) return
-          const bidUsername = bid.bidder.username
-          if (!biddersMap[bidUsername]) {
-            biddersMap[bidUsername] = {
-              profile: bidder,
-              totalAmount: 0, // Will represent highest bid
-              count: 0
-            }
-          }
-          biddersMap[bidUsername].count += 1
-          if (bid.amount > biddersMap[bidUsername].totalAmount) {
-            biddersMap[bidUsername].totalAmount = parseFloat(bid.amount)
-          }
-        })
-        const biddersResult = Object.values(biddersMap).sort((a, b) => b.count - a.count)
+        // Map Bidders View to local state format
+        const biddersResult = (bidders || []).map(row => ({
+          profile: {
+            username: row.username,
+            full_name: row.full_name,
+            avatar_url: row.avatar_url
+          },
+          totalAmount: parseFloat(row.highest_bid),
+          count: row.bids_count
+        }))
         setTopBidders(biddersResult)
 
       } catch (err) {

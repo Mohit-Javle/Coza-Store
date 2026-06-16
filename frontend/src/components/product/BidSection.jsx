@@ -90,11 +90,34 @@ const BidSection = ({ productId, startingBid, currentBid: initCurrentBid, buyNow
       navigate('/auth')
       return
     }
-    // Buy now = place a bid at buy_now_price then accept it
+    if (!profile?.id) return
+
+    if (!window.confirm(`Are you sure you want to buy this item instantly for ₹${buyNowPrice.toLocaleString('en-IN')}?`)) {
+      return
+    }
+
     setLoading(true)
-    await placeBid(productId, buyNowPrice)
-    setLoading(false)
+    try {
+      const { data: orderId, error } = await supabase.rpc('buy_product_now', {
+        p_id: productId,
+        b_id: profile.id,
+        amount: buyNowPrice
+      })
+
+      if (error) {
+        toast.error(error.message || 'Purchase failed. Try again.')
+      } else if (orderId) {
+        toast.success('Instant purchase successful! 🔥')
+        navigate(`/order/${orderId}`)
+      }
+    } catch (err) {
+      console.error('Buy Now error:', err)
+      toast.error('Purchase failed.')
+    } finally {
+      setLoading(false)
+    }
   }
+
 
   const handleAcceptBid = async (bidderId, amount) => {
     setLoading(true)

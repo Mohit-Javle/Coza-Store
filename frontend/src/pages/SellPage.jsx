@@ -20,31 +20,48 @@ const SellPage = () => {
   }, [isLoggedIn, navigate]);
 
   // Wizard state
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => Number(localStorage.getItem('sell_step')) || 1);
   const [direction, setDirection] = useState(1); // 1 = forward, -1 = backward
 
   // Form inputs state
-  const [title, setTitle] = useState('');
-  const [brand, setBrand] = useState('');
-  const [category, setCategory] = useState('Tops');
-  const [size, setSize] = useState('M');
-  const [gender, setGender] = useState('Unisex');
-  const [condition, setCondition] = useState(4);
-  const [description, setDescription] = useState('');
-  const [hasTags, setHasTags] = useState(false);
+  const [title, setTitle] = useState(() => localStorage.getItem('sell_title') || '');
+  const [brand, setBrand] = useState(() => localStorage.getItem('sell_brand') || '');
+  const [category, setCategory] = useState(() => localStorage.getItem('sell_category') || 'Tops');
+  const [size, setSize] = useState(() => localStorage.getItem('sell_size') || 'M');
+  const [gender, setGender] = useState(() => localStorage.getItem('sell_gender') || 'Unisex');
+  const [condition, setCondition] = useState(() => Number(localStorage.getItem('sell_condition')) || 4);
+  const [description, setDescription] = useState(() => localStorage.getItem('sell_description') || '');
+  const [hasTags, setHasTags] = useState(() => localStorage.getItem('sell_hasTags') === 'true');
   
-  // UI states — real file objects for Supabase upload
+  // UI states — real file objects for Supabase upload (files cannot be persisted in localStorage)
   const [photoFiles, setPhotoFiles] = useState([]);     // File objects
   const [photoPreview, setPhotoPreview] = useState([]); // Object URLs
   const [billFile, setBillFile] = useState(null);
   const [billName, setBillName] = useState('');
   
-  const [startBid, setStartBid] = useState('');
-  const [buyNowPrice, setBuyNowPrice] = useState('');
-  const [duration, setDuration] = useState('7');
-  const [customHours, setCustomHours] = useState('');
+  const [startBid, setStartBid] = useState(() => localStorage.getItem('sell_startBid') || '');
+  const [buyNowPrice, setBuyNowPrice] = useState(() => localStorage.getItem('sell_buyNowPrice') || '');
+  const [duration, setDuration] = useState(() => localStorage.getItem('sell_duration') || '7');
+  const [customHours, setCustomHours] = useState(() => localStorage.getItem('sell_customHours') || '');
   
   const [submitting, setSubmitting] = useState(false);
+
+  // Persist form inputs to localStorage
+  useEffect(() => {
+    localStorage.setItem('sell_step', step.toString());
+    localStorage.setItem('sell_title', title);
+    localStorage.setItem('sell_brand', brand);
+    localStorage.setItem('sell_category', category);
+    localStorage.setItem('sell_size', size);
+    localStorage.setItem('sell_gender', gender);
+    localStorage.setItem('sell_condition', condition.toString());
+    localStorage.setItem('sell_description', description);
+    localStorage.setItem('sell_hasTags', hasTags.toString());
+    localStorage.setItem('sell_startBid', startBid);
+    localStorage.setItem('sell_buyNowPrice', buyNowPrice);
+    localStorage.setItem('sell_duration', duration);
+    localStorage.setItem('sell_customHours', customHours);
+  }, [step, title, brand, category, size, gender, condition, description, hasTags, startBid, buyNowPrice, duration, customHours]);
 
   useEffect(() => () => {
     photoPreview.forEach(URL.revokeObjectURL);
@@ -172,6 +189,14 @@ const SellPage = () => {
       toast.error('Failed to create listing. Try again.');
       return;
     }
+
+    // Clear draft from localStorage on success
+    const keysToRemove = [
+      'sell_step', 'sell_title', 'sell_brand', 'sell_category', 'sell_size',
+      'sell_gender', 'sell_condition', 'sell_description', 'sell_hasTags',
+      'sell_startBid', 'sell_buyNowPrice', 'sell_duration', 'sell_customHours'
+    ];
+    keysToRemove.forEach(key => localStorage.removeItem(key));
 
     toast.success('Listing live! 🔥');
     navigate(`/profile/${profile.username}`);

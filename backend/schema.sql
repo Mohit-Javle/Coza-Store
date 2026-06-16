@@ -258,3 +258,143 @@ CREATE POLICY "Admins insert logs" ON admin_logs
       AND role IN ('admin','superadmin')
     )
   );
+
+-- ==================== LEADERBOARD VIEWS ====================
+
+-- Top Sellers View (aggregated by database)
+CREATE OR REPLACE VIEW v_leaderboard_sellers AS
+SELECT 
+  o.seller_id AS id,
+  p.username,
+  p.full_name,
+  p.avatar_url,
+  SUM(o.final_amount) AS total_amount,
+  COUNT(o.id) AS sales_count
+FROM public.orders o
+JOIN public.profiles p ON o.seller_id = p.id
+GROUP BY o.seller_id, p.username, p.full_name, p.avatar_url;
+
+-- Top Buyers View (aggregated by database)
+CREATE OR REPLACE VIEW v_leaderboard_buyers AS
+SELECT 
+  o.buyer_id AS id,
+  p.username,
+  p.full_name,
+  p.avatar_url,
+  SUM(o.final_amount) AS total_amount,
+  COUNT(o.id) AS items_copped
+FROM public.orders o
+JOIN public.profiles p ON o.buyer_id = p.id
+GROUP BY o.buyer_id, p.username, p.full_name, p.avatar_url;
+
+-- Top Bidders View (aggregated by database)
+CREATE OR REPLACE VIEW v_leaderboard_bidders AS
+SELECT 
+  b.bidder_id AS id,
+  p.username,
+  p.full_name,
+  p.avatar_url,
+  MAX(b.amount) AS highest_bid,
+  COUNT(b.id) AS bids_count
+FROM public.bids b
+JOIN public.profiles p ON b.bidder_id = p.id
+GROUP BY b.bidder_id, p.username, p.full_name, p.avatar_url;
+
+-- ==================== BUY NOW FUNCTION ====================
+
+CREATE OR REPLACE FUNCTION buy_product_now(p_id uuid, b_id uuid, amount numeric)
+RETURNS uuid AS $$
+DECLARE
+  v_seller_id uuid;
+  v_upi_id text;
+  v_upi_qr text;
+  v_order_id uuid;
+  v_title text;
+BEGIN
+  -- Get seller info and title, check if product is active
+  SELECT seller_id, title INTO v_seller_id, v_title FROM public.products WHERE id = p_id AND status = 'active';
+  IF v_seller_id IS NULL THEN
+    RAISE EXCEPTION 'Product not available for purchase';
+  END IF;
+
+  IF v_seller_id = b_id THEN
+    RAISE EXCEPTION 'You cannot buy your own product';
+  END IF;
+
+  -- Get seller UPI details
+  SELECT upi_id, upi_qr_url INTO v_upi_id, v_upi_qr FROM public.profiles WHERE id = v_seller_id;
+
+  -- Insert order
+  INSERT INTO public.orders (product_id, buyer_id, seller_id, final_amount, upi_id_shared, upi_qr_shared, order_status, payment_status)
+  VALUES (p_id, b_id, v_seller_id, amount, v_upi_id, v_upi_qr, 'awaiting_payment', 'pending')
+  RETURNING id INTO v_order_id;
+
+  -- Update product status to sold
+  UPDATE public.products SET status = 'sold', current_bid = amount WHERE id = p_id;
+
+  -- Place the final winning bid record in bids table
+  INSERT INTO public.bids (product_id, bidder_id, amount)
+  VALUES (p_id, b_id, amount);
+
+  -- Create notification for seller
+  INSERT INTO public.notifications (user_id, type, message, related_product_id, related_order_id)
+  VALUES (v_seller_id, 'item_sold', 'Congratulations! Your item "' || v_title || '" was bought instantly via Buy Now!', p_id, v_order_id);
+
+  RETURN v_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ==================== RESOLVE EXPIRED BIDS FUNCTION ====================
+
+CREATE OR REPLACE FUNCTION resolve_expired_bids()
+RETURNS void AS $$
+DECLARE
+  r RECORD;
+  v_bidder_id uuid;
+  v_amount numeric;
+  v_order_id uuid;
+  v_upi_id text;
+  v_upi_qr text;
+  v_winner_username text;
+BEGIN
+  -- Loop through all active products that have expired
+  FOR r IN 
+    SELECT id, seller_id, title FROM public.products 
+    WHERE status = 'active' AND bid_ends_at < now()
+  LOOP
+    -- Find the highest bid for this product
+    SELECT bidder_id, amount INTO v_bidder_id, v_amount 
+    FROM public.bids 
+    WHERE product_id = r.id 
+    ORDER BY amount DESC 
+    LIMIT 1;
+
+    IF v_bidder_id IS NOT NULL THEN
+      -- Get seller UPI details
+      SELECT upi_id, upi_qr_url INTO v_upi_id, v_upi_qr FROM public.profiles WHERE id = r.seller_id;
+
+      -- Get winner username for seller notification
+      SELECT username INTO v_winner_username FROM public.profiles WHERE id = v_bidder_id;
+
+      -- Create the order
+      INSERT INTO public.orders (product_id, buyer_id, seller_id, final_amount, upi_id_shared, upi_qr_shared, order_status, payment_status)
+      VALUES (r.id, v_bidder_id, r.seller_id, v_amount, v_upi_id, v_upi_qr, 'awaiting_payment', 'pending')
+      RETURNING id INTO v_order_id;
+
+      -- Update product to sold
+      UPDATE public.products SET status = 'sold' WHERE id = r.id;
+
+      -- Notify buyer
+      INSERT INTO public.notifications (user_id, type, message, related_product_id, related_order_id)
+      VALUES (v_bidder_id, 'bid_won', 'Your bid of ₹' || v_amount || ' won the auction for "' || r.title || '"! Complete payment to proceed.', r.id, v_order_id);
+
+      -- Notify seller
+      INSERT INTO public.notifications (user_id, type, message, related_product_id, related_order_id)
+      VALUES (r.seller_id, 'bid_won_seller', 'Your auction for "' || r.title || '" has ended. Winner is @' || COALESCE(v_winner_username, 'someone') || ' for ₹' || v_amount || '.', r.id, v_order_id);
+    ELSE
+      -- No bids were placed; mark product as expired
+      UPDATE public.products SET status = 'expired' WHERE id = r.id;
+    END IF;
+  END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

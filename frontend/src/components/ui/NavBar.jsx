@@ -33,6 +33,13 @@ const NavBar = () => {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
+  // Resolve expired auctions in the database on app/navbar mount (lazy resolution)
+  useEffect(() => {
+    supabase.rpc('resolve_expired_bids').catch(err => {
+      console.error('Error resolving expired auctions:', err)
+    })
+  }, [])
+
   // Close menus on route change
   useEffect(() => {
     setIsMobileMenuOpen(false)
